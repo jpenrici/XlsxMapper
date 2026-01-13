@@ -7,6 +7,7 @@
 
 * Python 3.13+
 * Openpyxl
+* Pillow
 
 ```bash
 pip install openpyxl

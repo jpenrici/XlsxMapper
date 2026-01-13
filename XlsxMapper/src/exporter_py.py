@@ -19,16 +19,12 @@ class PythonScriptExporter:
             "# -*- coding: utf-8 -*-",
             "import openpyxl",
             "from openpyxl.styles import Alignment, Font, PatternFill, Border, Side",
-            "from openpyxl.drawing.image import Image as XLImage\n",
-            "def rebuild():",
-            "    print('[*] Starting Workbook reconstruction...')",
-            "    wb = openpyxl.Workbook()",
-            "    # Remove default sheet",
-            "    if 'Sheet' in wb.sheetnames: wb.remove(wb['Sheet'])\n"
+            "from openpyxl.drawing.image import Image as XLImage\n"
         ]
 
         for sheet_name, content in workbook_data.items():
-            script.append(f"    # --- Reconstructing Sheet: {sheet_name} ---")
+            clean_name = "".join(x for x in sheet_name if x.isalnum())
+            script.append(f"def rebuild_sheet_{clean_name}(wb):")
             script.append(f"    ws = wb.create_sheet('{sheet_name}')")
 
             # Apply Dimensions
@@ -99,15 +95,24 @@ class PythonScriptExporter:
                     script.append(
                         f"    except Exception as e: print(f' [!] Error loading image {img['filename']}: {{e}}')")
 
-            script.append("")  # Spacer between sheets
+            script.append(f"    print(f\"   [+] Sheet {sheet_name} completed.\")\n")
+            script.append("")  # Spacer between sheet
 
-        script.extend([
-            "    output_filename = 'full_reconstructed_file.xlsx'",
-            "    wb.save(output_filename)",
-            "    print(f\"[+] Success! '{output_filename}' created.\")",
-            "\nif __name__ == '__main__':",
-            "    rebuild()"
-        ])
+        script.append("def main_rebuild():")
+        script.append("    print('[*] Starting Modular Reconstruction...')")
+        script.append("    wb = openpyxl.Workbook()")
+        script.append("    if 'Sheet' in wb.sheetnames: wb.remove(wb['Sheet'])")
+
+        for sheet_name in workbook_data.keys():
+            clean_name = "".join(x for x in sheet_name if x.isalnum())
+            script.append(f"    rebuild_sheet_{clean_name}(wb)")
+
+        script.append("    output_file = 'full_reconstructed_file.xlsx'")
+        script.append("    wb.save(output_file)")
+        script.append("    print(f\"[!] Success: '{output_file}' generated.\")")
+
+        script.append("\nif __name__ == '__main__':")
+        script.append("    main_rebuild()")
 
         output_file = self.output_dir / "full_reconstruct.py"
         with open(output_file, "w", encoding="utf-8") as f:

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import datetime
 import json
 import openpyxl
 from dataclasses import dataclass, asdict, field
@@ -141,6 +142,14 @@ class XlsxAnalyzer:
 
                 # Check for formula: value starts with '=' in data_only=False mode
                 raw_value = cell.value
+                processed_val = raw_value
+
+                if isinstance(raw_value, (datetime.datetime, datetime.date, datetime.time)):
+                    try:
+                        processed_val = raw_value.isoformat()
+                    except AttributeError:
+                        processed_val = str(raw_value)
+
                 formula = raw_value if isinstance(raw_value, str) and raw_value.startswith('=') else None
 
                 # Identify if cell belongs to a merged range
@@ -156,7 +165,7 @@ class XlsxAnalyzer:
                     coordinate=cell.coordinate,
                     row=r,
                     col=c,
-                    value=raw_value if not formula else None,
+                    value=processed_val if not formula else None,
                     formula=formula,
                     is_merged=is_merged,
                     merge_range=m_range_coord,
