@@ -22,6 +22,10 @@ class CellMetadata:
     merge_range: Optional[str] = None
     fill_color: Optional[str] = None   # Stored as HEX (e.g., 'FF0000')
     font_bold: bool = False
+    font_italic: bool = False
+    font_size: int = 12
+    font_color: Optional[str] = None
+    font_name: str = "Arial"
     alignment: str = "left"
     vertical_align: str = "center"
     text_rotation: int = 0
@@ -46,7 +50,10 @@ class XlsxAnalyzer:
         Converts openpyxl color objects (ARGB) to standard HEX strings.
         Fixes the 'black background' issue by checking for invalid/default colors.
         """
-        if color_obj and color_obj.type == 'rgb':
+        if not color_obj:
+            return None
+
+        if color_obj.type == 'rgb':
             rgb = str(color_obj.rgb)
             # If color is '00000000' or empty, it means 'No Fill' or 'Automatic'
             if rgb in ["00000000", "000000", "None"]:
@@ -161,6 +168,12 @@ class XlsxAnalyzer:
                         m_range_coord = m_range.coord
                         break
 
+                # Capture the Font
+                f_size = getattr(cell.font, "sz", 12)
+                f_color = None
+                if cell.font and cell.font.color:
+                    f_color = self._get_hex_color(cell.font.color)
+
                 meta = CellMetadata(
                     coordinate=cell.coordinate,
                     row=r,
@@ -169,8 +182,12 @@ class XlsxAnalyzer:
                     formula=formula,
                     is_merged=is_merged,
                     merge_range=m_range_coord,
-                    font_bold=getattr(cell.font, "bold", False),
                     fill_color=self._get_hex_color(cell.fill.start_color),
+                    font_bold=getattr(cell.font, "bold", False),
+                    font_italic=getattr(cell.font, "italic", False),
+                    font_size=int(f_size) if f_size else 12,
+                    font_color=f_color,
+                    font_name=getattr(cell.font, "name", "Arial"),
                     alignment=getattr(cell.alignment, "horizontal", "left") or "left",
                     vertical_align=getattr(cell.alignment, "vertical", "center") or "center",
                     text_rotation=getattr(cell.alignment, "text_rotation", 0) or 0,

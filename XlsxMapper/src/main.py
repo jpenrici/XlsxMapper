@@ -43,22 +43,37 @@ def main() -> None:
     # 1. Directory Setup
     base_dir = Path(__file__).parent.parent
     output_dir = base_dir / "output"
-    img_output_dir = output_dir / "images"
+    src_dir = output_dir / "xlsx_py"
+    img_dir = src_dir / "images"
     test_dir = base_dir / "test_xlsx"
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    test_dir.mkdir(parents=True, exist_ok=True)
+    src_dir.mkdir(parents=True, exist_ok=True)
+    img_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Sample Generation
     # If --test is used, we force the creation of the sample first
     if args.sample or args.test:
+        test_dir.mkdir(parents=True, exist_ok=True)
         print("[*] Action: Generating XLSX sample...")
         create_sample()
         if args.sample and not args.test:
             print("[+] Sample created. Exiting.")
             return
 
-    # 3. Input Path Logic
+    # 3. Cleanup Phase
+    if args.clean or args.test:
+        print("[*] Cleaning output directory...")
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
+            if args.clean:
+                print(f"[!] Directory {output_dir} deleted.")
+                return
+        output_dir.mkdir(parents=True, exist_ok=True)
+        src_dir.mkdir(parents=True, exist_ok=True)
+        img_dir.mkdir(parents=True, exist_ok=True)
+
+    # 4. Input Path Logic
     if args.test:
         input_path = test_dir / "sample.xlsx"
     elif args.input:
@@ -70,14 +85,6 @@ def main() -> None:
     if not input_path.exists():
         print(f"[-] Error: Input file '{input_path}' not found.")
         return
-
-    # 4. Cleanup Phase
-    if args.clean or args.test:
-        print("[*] Cleaning output directory...")
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        img_output_dir.mkdir(parents=True, exist_ok=True)
 
     # 5. Pipeline Logic
     do_meta = args.meta or args.all or args.test
@@ -104,7 +111,7 @@ def main() -> None:
             dims = analyzer.get_sheet_dimensions(sheet_name)
 
             # Extract Assets (Images)
-            assets = analyzer.get_sheet_assets(sheet_name, img_output_dir)
+            assets = analyzer.get_sheet_assets(sheet_name, img_dir)
 
             all_workbook_data[sheet_name] = {
                 "cells": cells,
@@ -136,9 +143,9 @@ def main() -> None:
 
     if do_transpile and all_workbook_data:
         print("\n[*] Generating Global Reconstruction Script...")
-        py_exporter = PythonScriptExporter(output_dir)
+        py_exporter = PythonScriptExporter(src_dir)
         py_exporter.generate_full_workbook(all_workbook_data)
-        print(f"[+] Success: Script generated in {output_dir}/full_reconstruct.py")
+        print(f"[+] Success: Script generated in {output_dir}/src/main.py")
 
 
 if __name__ == "__main__":

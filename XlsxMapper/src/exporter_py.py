@@ -11,8 +11,7 @@ class PythonScriptExporter:
 
     def __init__(self, output_dir: Path):
         self.output_dir = output_dir
-        self.src_dir = output_dir / "src"
-        self.src_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         # Stores unique styles: { "hash": "python_code" }
         self.style_registry = {"borders": {}, "fills": {}, "fonts": {}}
 
@@ -41,7 +40,7 @@ class PythonScriptExporter:
 
     def _write_sheet_module(self, clean_name: str, original_name: str, content, filename: str):
         script = [
-            "# -*- coding: utf-8 -*-",
+            "# -*- coding: utf-8 -*-\n",
             "from openpyxl.styles import Alignment, Font, PatternFill, Border, Side",
             "from openpyxl.drawing.image import Image as XLImage",
             "from datetime import datetime as dt, time as tm",
@@ -76,16 +75,27 @@ class PythonScriptExporter:
                 script.append(f"    ws['{coord}'].value = {formatted_val}")
 
                 # Alignment & Rotation
-                align_parts = []
-                if data.get('alignment') != 'left':
-                    align_parts.append(f"horizontal='{data['alignment']}'")
+                align_data = {}
+                if data.get('alignment') and data.get('alignment') != 'left':
+                    align_data['horizontal'] = data['alignment']
                 if data.get('vertical_align') and data.get('vertical_align') != 'bottom':
-                    align_parts.append(f"vertical='{data['vertical_align']}'")
+                    align_data['vertical'] = data['vertical_align']
                 if data.get('text_rotation', 0) != 0:
-                    align_parts.append(f"text_rotation={data['text_rotation']}")
+                    align_data['text_rotation'] = data['text_rotation']
 
-                if align_parts:
-                    script.append(f"    ws['{coord}'].alignment = Alignment({', '.join(align_parts)})")
+                if align_data:
+                    a_id = self._generate_style_id(align_data, "ALIGN")
+
+                    if a_id not in self.style_registry.get("alignments", {}):
+                        # Se não existir a chave no dicionário principal, inicialize
+                        if "alignments" not in self.style_registry:
+                            self.style_registry["alignments"] = {}
+
+                        a_args = [f"{k}={v}" if isinstance(v, int) else f"{k}='{v}'"
+                                  for k, v in align_data.items()]
+                        self.style_registry["alignments"][a_id] = f"Alignment({', '.join(a_args)})"
+
+                    script.append(f"    ws['{coord}'].alignment = {a_id}")
 
                 # Borders
                 if data.get('borders'):
@@ -107,6 +117,24 @@ class PythonScriptExporter:
                     self.style_registry["fonts"][font_id] = "Font(bold=True)"
                     script.append(f"    ws['{coord}'].font = {font_id}")
 
+                font_data = {}
+                if data.get('font_bold'):
+                    font_data['bold'] = True
+                if data.get('font_italic'):
+                    font_data['italic'] = True
+                if data.get('font_color'):
+                    font_data['color'] = data['font_color']
+                if data.get('font_size'):
+                    font_data['size'] = data['font_size']
+
+                if font_data:
+                    f_id = self._generate_style_id(font_data, "FONT")
+                    if f_id not in self.style_registry["fonts"]:
+                        f_args = [f"{k}={v}" if isinstance(v, (int, bool)) else f"{k}='{v}'"
+                                  for k, v in font_data.items()]
+                        self.style_registry["fonts"][f_id] = f"Font({', '.join(f_args)})"
+                    script.append(f"    ws['{coord}'].font = {f_id}")
+
             # Merge Logic
             m_range = data.get('merge_range')
             if data.get('is_merged') and m_range not in processed_merges:
@@ -119,7 +147,7 @@ class PythonScriptExporter:
             script.append(f"    # Assets for {original_name}")
             for img in assets:
                 script.append("    try:")
-                script.append(f"        img_path = Path(__file__).parent.parent / 'images' / '{img['filename']}'")
+                script.append(f"        img_path = Path(__file__).parent / 'images' / '{img['filename']}'")
                 script.append("        img_obj = XLImage(img_path)")
                 script.append(f"        img_obj.width, img_obj.height = {img['width']}, {img['height']}")
                 script.append(f"        ws.add_image(img_obj, '{img['anchor']}')")
@@ -129,13 +157,13 @@ class PythonScriptExporter:
         script.append(f"    print(f\"   [+] Sheet {original_name} completed.\")\n")
 
         # Save Sheet module
-        with open(self.src_dir / filename, "w", encoding="utf-8") as f:
+        with open(self.output_dir / filename, "w", encoding="utf-8") as f:
             f.write("\n".join(script))
 
     def _write_common_styles(self):
         content = [
-            "# -*- coding: utf-8 -*-",
-            "from openpyxl.styles import Border, Side, PatternFill, Font\n"
+            "# -*- coding: utf-8 -*-\n",
+            "from openpyxl.styles import Border, Side, PatternFill, Font, Alignment\n"
         ]
 
         for category in self.style_registry.values():
@@ -143,12 +171,12 @@ class PythonScriptExporter:
                 content.append(f"{style_id} = {python_code}")
 
         # Save Common module
-        with open(self.src_dir / "common.py", "w", encoding="utf-8") as f:
+        with open(self.output_dir / "common.py", "w", encoding="utf-8") as f:
             f.write("\n".join(content))
 
     def _write_main_reconstructor(self, sheet_modules):
         script = [
-            "# -*- coding: utf-8 -*-",
+            "# -*- coding: utf-8 -*-\n",
             "import openpyxl",
             "import sys",
             "from pathlib import Path\n",
@@ -173,7 +201,7 @@ class PythonScriptExporter:
         script.append("    main_rebuild()")
 
         # Save Main module
-        with open(self.src_dir / "main.py", "w", encoding="utf-8") as f:
+        with open(self.output_dir / "main.py", "w", encoding="utf-8") as f:
             f.write("\n".join(script))
 
 
