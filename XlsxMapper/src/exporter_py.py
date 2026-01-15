@@ -145,8 +145,8 @@ class PythonScriptExporter:
                 fill = f_id
 
             # Style
-            fmt = f"    format_cell(ws, {row}, {column}, \"\"\"{value}\"\"\", {font}, {alignment}, {border}, {fill})"
-            cmd_styles.append(fmt)
+            cmd = f"    format_cell(ws, {row}, {column}, \"\"\"{value}\"\"\", {font}, {alignment}, {border}, {fill})"
+            cmd_styles.append(cmd)
 
             # Merge Logic
             m_range = data.get('merge_range')
