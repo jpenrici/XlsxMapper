@@ -46,11 +46,7 @@ class XlsxAnalyzer:
         self.workbook = openpyxl.load_workbook(file_path, data_only=False)
 
     def _get_hex_color(self, color_obj: Any) -> Optional[str]:
-        """
-        Converts openpyxl color objects (RGB, Theme, Indexed) to HEX strings.
-        Fixes the 'black background' issue by checking for invalid/default colors.
-        """
-
+        """Handles the color of the openpyxl object."""
         if not color_obj or color_obj.type is None:
             return None
 
@@ -70,9 +66,8 @@ class XlsxAnalyzer:
         return None
 
     def _get_borders(self, cell: Any) -> Dict[str, Any]:
-        """
-        Maps the border style and color for each side of the cell.
-        """
+        """Maps the border style and color for each side of the cell."""
+        
         border_map = {}
         for side_name in ['top', 'bottom', 'left', 'right']:
             side = getattr(cell.border, side_name)
@@ -85,6 +80,7 @@ class XlsxAnalyzer:
 
     def get_sheet_dimensions(self, sheet_name: str) -> Dict[str, Any]:
         """Captures column widths and row heights for visual fidelity."""
+        
         ws = self.workbook[sheet_name]
         dims = {"cols_letter": {}, "rows_idx": {}}
 
@@ -98,9 +94,8 @@ class XlsxAnalyzer:
         return dims
 
     def get_sheet_assets(self, sheet_name: str, output_img_dir: Path) -> List[Dict[str, Any]]:
-        """
-        Extracts images from the worksheet and saves them to the output folder.
-        """
+        """Extracts images from the worksheet and saves them to the output folder."""
+        
         ws = self.workbook[sheet_name]
         images_metadata = []
 
@@ -135,9 +130,8 @@ class XlsxAnalyzer:
         return images_metadata
 
     def get_cell_details(self, sheet_name: str) -> List[CellMetadata]:
-        """
-        Iterates through the worksheet and compiles a list of CellMetadata objects.
-        """
+        """Iterates through the worksheet and compiles a list of CellMetadata objects."""
+        
         if sheet_name not in self.workbook.sheetnames:
             raise ValueError(f"Sheet {sheet_name} not found in workbook.")
 
@@ -211,9 +205,8 @@ class XlsxAnalyzer:
         return mapped_data
 
     def export_config_json(self, sheet_name: str, output_path: Path) -> None:
-        """
-        Serializes the extracted metadata to a JSON file.
-        """
+        """Serializes the extracted metadata to a JSON file."""
+        
         data = self.get_cell_details(sheet_name)
         # Convert list of dataclasses to a list of dictionaries
         serializable_data = [asdict(item) for item in data]
