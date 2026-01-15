@@ -46,33 +46,35 @@ class PythonScriptExporter:
         cmd_styles = []
         cmd_formulas = []
 
-        # Apply Dimensions
+        # Dimensions
         dims = content.get("dims", {})
         for col, width in dims.get("cols_letter", {}).items():
             cmd_dims.append(f"    ws.column_dimensions['{col}'].width = {width}")
         for row, height in dims.get("rows_idx", {}).items():
             cmd_dims.append(f"    ws.row_dimensions[{row}].height = {height}")
 
-        # Reconstruct Cells (Data & Styles)
+        # Cells (Data & Styles)
         processed_merges = set()
         cells = content.get("cells", [])
 
         for c in cells:
             # Support both Dict (from JSON) and Dataclass
             data = c if isinstance(c, dict) else c.__dict__
-            address = data['coordinate']
-
-            value, font, alignment, border, fill = "", "None", "None", "None", "None"
+            # Coordinate
+            address = data['coordinate']            # 'A1'
+            row, column = data['row'], data['col']  # (1,1)
 
             # Formulas
             if data.get('formula'):
                 cmd_formulas.append(f"    ws['{address}'].value = '{data['formula']}'")
 
             # Values
+            value = ""
             if data.get('value') is not None:
                 value = data['value']
 
             # Font
+            font = "None"
             font_data = {}
             if data.get('font_bold'):
                 font_data['bold'] = True
@@ -96,6 +98,7 @@ class PythonScriptExporter:
                 font = f_id
 
             # Alignment & Rotation
+            alignment = "None"
             align_data = {}
             if data.get('horizontal_align') and data.get('horizontal_align') != 'left':
                 align_data['horizontal'] = data['horizontal_align']
@@ -119,6 +122,7 @@ class PythonScriptExporter:
                 alignment = a_id
 
             # Borders
+            border = "None"
             if data.get('borders'):
                 b_id = self._generate_style_id(data['borders'], "BORDER")
                 b_args = [f"{s}=Side(border_style='{d['style']}', color='{d['color']}')" for s,
@@ -127,6 +131,7 @@ class PythonScriptExporter:
                 border = b_id
 
             # Fill
+            fill = "None"
             raw_fill = data.get('fill_color')
             if isinstance(raw_fill, str) and len(raw_fill) <= 8 and " " not in raw_fill:
                 fill_data = {'color': raw_fill, 'type': 'solid'}
@@ -139,18 +144,17 @@ class PythonScriptExporter:
                     )
                 fill = f_id
 
+            # Style
+            fmt = f"    format_cell(ws, {row}, {column}, \"\"\"{value}\"\"\", {font}, {alignment}, {border}, {fill})"
+            cmd_styles.append(fmt)
+
             # Merge Logic
             m_range = data.get('merge_range')
             if data.get('is_merged') and m_range not in processed_merges:
                 cmd_merges.append(f"    ws.merge_cells('{m_range}')")
                 processed_merges.add(m_range)
 
-            # Include command in script
-            fmt = f"    format_cell(ws, '{address}', \"\"\"{value}\"\"\", {font}, {alignment}, {border}, {fill})"
-            cmd_styles.append(fmt)
-
         # Module
-        # Isso estaria certo pro meu propósito?
         script = [
             "# -*- coding: utf-8 -*-\n",
             "from openpyxl.styles import Alignment, Font, PatternFill, Border, Side",
@@ -201,13 +205,14 @@ class PythonScriptExporter:
             "from openpyxl.worksheet.worksheet import Worksheet",
             "from openpyxl.styles import Border, Side, PatternFill, Font, Alignment\n\n",
             "def format_cell(worksheet : Worksheet, ",
-            "                address: str,",
+            "                row: int,",
+            "                column: int,",
             "                value: str, ",
             "                font : Font = None,",
             "                alignment : Alignment = None,",
             "                border : Border = None,",
             "                fill : PatternFill = None) -> Cell:\n",
-            "    cell = worksheet[address]",
+            "    cell = worksheet.cell(row=row, column=column)",
             "    if value: cell.value = value",
             "    if font: cell.font = font",
             "    if alignment: cell.alignment = alignment",
@@ -245,7 +250,7 @@ class PythonScriptExporter:
         for mod in sheet_modules:
             script.append(f"    build_{mod}(wb)")
 
-        script.append("    output_file = 'full_reconstructed.xlsx'")
+        script.append("    output_file = 'output.xlsx'")
         script.append("    wb.save(output_file)")
         script.append("    print(f\"[!] Success: '{output_file}' generated.\")")
 
