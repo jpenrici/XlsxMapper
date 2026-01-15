@@ -13,7 +13,7 @@ class PythonScriptExporter:
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         # Stores unique styles: { "hash": "python_code" }
-        self.style_registry = {"borders": {}, "fills": {}, "fonts": {}}
+        self.style_registry = {"borders": {}, "fills": {}, "fonts": {}, "alignment": {}}
 
     def _generate_style_id(self, style_dict, prefix):
         """Generates a unique ID for a style based on its content."""
@@ -23,7 +23,7 @@ class PythonScriptExporter:
 
     def generate_full_workbook(self, workbook_data: Dict[str, Dict[str, Any]]) -> None:
         """
-        Generates a master script to rebuild the workbook.
+        Generates a master script to build the workbook.
         Expected structure: { "SheetName": {"cells": [...], "dims": {...}, "assets": [...] } }
         """
         sheet_modules = []
@@ -39,22 +39,24 @@ class PythonScriptExporter:
         self._write_main_reconstructor(sheet_modules)
 
     def _write_sheet_module(self, clean_name: str, original_name: str, content, filename: str):
+        """Generate module to build the spreadsheet."""
         script = [
             "# -*- coding: utf-8 -*-\n",
             "from openpyxl.styles import Alignment, Font, PatternFill, Border, Side",
             "from openpyxl.drawing.image import Image as XLImage",
             "from datetime import datetime as dt, time as tm",
-            "from pathlib import Path",
-            "from common import *\n",
-            f"def rebuild_{clean_name}(wb):",
+            "from pathlib import Path\n",
+            "# format_cell function and style constants",
+            "from common import *\n\n",
+            f"def build_{clean_name}(wb):",
             f"    ws = wb.create_sheet('{original_name}')"
         ]
 
         # Apply Dimensions
         dims = content.get("dims", {})
-        for col, width in dims.get("cols", {}).items():
+        for col, width in dims.get("cols_letter", {}).items():
             script.append(f"    ws.column_dimensions['{col}'].width = {width}")
-        for row, height in dims.get("rows", {}).items():
+        for row, height in dims.get("rows_idx", {}).items():
             script.append(f"    ws.row_dimensions[{row}].height = {height}")
 
         # Reconstruct Cells (Data & Styles)
@@ -64,82 +66,82 @@ class PythonScriptExporter:
         for c in cells:
             # Support both Dict (from JSON) and Dataclass
             data = c if isinstance(c, dict) else c.__dict__
-            coord = data['coordinate']
+            address = data['coordinate']
 
-            # Formulas and Values
+            value, font, alignment, border, fill = "", "None", "None", "None", "None"
+
+            # Formulas
             if data.get('formula'):
-                script.append(f"    ws['{coord}'].value = '{data['formula']}'")
-            elif data.get('value') is not None:
-                val = data['value']
-                formatted_val = f'"""{val}"""' if isinstance(val, str) else val
-                script.append(f"    ws['{coord}'].value = {formatted_val}")
+                script.append(f"    ws['{address}'].value = '{data['formula']}'")
 
-                # Alignment & Rotation
-                align_data = {}
-                if data.get('alignment') and data.get('alignment') != 'left':
-                    align_data['horizontal'] = data['alignment']
-                if data.get('vertical_align') and data.get('vertical_align') != 'bottom':
-                    align_data['vertical'] = data['vertical_align']
-                if data.get('text_rotation', 0) != 0:
-                    align_data['text_rotation'] = data['text_rotation']
+            # Values
+            if data.get('value') is not None:
+                value = data['value']
 
-                if align_data:
-                    a_id = self._generate_style_id(align_data, "ALIGN")
+            # Font
+            font_data = {}
+            if data.get('font_bold'):
+                font_data['bold'] = True
+            if data.get('font_italic'):
+                font_data['italic'] = True
+            if data.get('font_color'):
+                font_data['color'] = data['font_color']
+            if data.get('font_size'):
+                font_data['size'] = data['font_size']
 
-                    if a_id not in self.style_registry.get("alignments", {}):
-                        # Se não existir a chave no dicionário principal, inicialize
-                        if "alignments" not in self.style_registry:
-                            self.style_registry["alignments"] = {}
+            if font_data:
+                f_id = self._generate_style_id(font_data, "FONT")
+                if f_id not in self.style_registry["fonts"]:
+                    f_args = [f"{k}={v}" if isinstance(v, (int, bool)) else f"{k}='{v}'"
+                              for k, v in font_data.items()]
+                    self.style_registry["fonts"][f_id] = f"Font({', '.join(f_args)})"
+                font = f"{f_id}"
 
-                        a_args = [f"{k}={v}" if isinstance(v, int) else f"{k}='{v}'"
-                                  for k, v in align_data.items()]
-                        self.style_registry["alignments"][a_id] = f"Alignment({', '.join(a_args)})"
+            # Alignment & Rotation
+            align_data = {}
+            if data.get('horizontal_align') and data.get('horizontal_align') != 'left':
+                align_data['horizontal'] = data['horizontal_align']
+            if data.get('vertical_align') and data.get('vertical_align') != 'bottom':
+                align_data['vertical'] = data['vertical_align']
+            if data.get('text_rotation', 0) != 0:
+                align_data['text_rotation'] = data['text_rotation']
 
-                    script.append(f"    ws['{coord}'].alignment = {a_id}")
+            if align_data:
+                a_id = self._generate_style_id(align_data, "ALIGN")
 
-                # Borders
-                if data.get('borders'):
-                    b_id = self._generate_style_id(data['borders'], "BORDER")
-                    b_args = [f"{s}=Side(border_style='{d['style']}', color='{d['color']}')" for s,
-                              d in data['borders'].items()]
-                    self.style_registry["borders"][b_id] = f"Border({', '.join(b_args)})"
-                    script.append(f"    ws['{coord}'].border = {b_id}")
+                if a_id not in self.style_registry.get("alignments", {}):
+                    # Se não existir a chave no dicionário principal, inicialize
+                    if "alignments" not in self.style_registry:
+                        self.style_registry["alignments"] = {}
 
-                # Fill
-                if data.get('fill_color'):
-                    f_id = f"FILL_{data['fill_color']}"
-                    self.style_registry["fills"][f_id] = f"PatternFill(start_color='{data['fill_color']}', fill_type='solid')"
-                    script.append(f"    ws['{coord}'].fill = {f_id}")
+                    a_args = [f"{k}={v}" if isinstance(v, int) else f"{k}='{v}'"
+                              for k, v in align_data.items()]
+                    self.style_registry["alignments"][a_id] = f"Alignment({', '.join(a_args)})"
 
-                # Font
-                if data.get('font_bold'):
-                    font_id = "FONT_BOLD"
-                    self.style_registry["fonts"][font_id] = "Font(bold=True)"
-                    script.append(f"    ws['{coord}'].font = {font_id}")
+                alignment = f"{a_id}"
 
-                font_data = {}
-                if data.get('font_bold'):
-                    font_data['bold'] = True
-                if data.get('font_italic'):
-                    font_data['italic'] = True
-                if data.get('font_color'):
-                    font_data['color'] = data['font_color']
-                if data.get('font_size'):
-                    font_data['size'] = data['font_size']
+            # Borders
+            if data.get('borders'):
+                b_id = self._generate_style_id(data['borders'], "BORDER")
+                b_args = [f"{s}=Side(border_style='{d['style']}', color='{d['color']}')" for s,
+                          d in data['borders'].items()]
+                self.style_registry["borders"][b_id] = f"Border({', '.join(b_args)})"
+                border = f"{b_id}"
 
-                if font_data:
-                    f_id = self._generate_style_id(font_data, "FONT")
-                    if f_id not in self.style_registry["fonts"]:
-                        f_args = [f"{k}={v}" if isinstance(v, (int, bool)) else f"{k}='{v}'"
-                                  for k, v in font_data.items()]
-                        self.style_registry["fonts"][f_id] = f"Font({', '.join(f_args)})"
-                    script.append(f"    ws['{coord}'].font = {f_id}")
+            # Fill
+            if data.get('fill_color'):
+                f_id = f"FILL_{data['fill_color']}"
+                self.style_registry["fills"][f_id] = f"PatternFill(start_color='{data['fill_color']}', fill_type='solid')"
+                fill = f"{f_id}"
 
             # Merge Logic
             m_range = data.get('merge_range')
             if data.get('is_merged') and m_range not in processed_merges:
                 script.append(f"    ws.merge_cells('{m_range}')")
                 processed_merges.add(m_range)
+
+            # Include command in script
+            script.append(f"    format_cell(ws, '{address}', '{value}', {font}, {alignment}, {border}, {fill})")
 
         # Reconstruct Assets (Images)
         assets = content.get("assets", [])
@@ -163,7 +165,21 @@ class PythonScriptExporter:
     def _write_common_styles(self):
         content = [
             "# -*- coding: utf-8 -*-\n",
-            "from openpyxl.styles import Border, Side, PatternFill, Font, Alignment\n"
+            "from openpyxl.cell.cell import Cell",
+            "from openpyxl.worksheet.worksheet import Worksheet",
+            "from openpyxl.styles import Border, Side, PatternFill, Font, Alignment\n\n",
+            "def format_cell(worksheet : Worksheet, address: str, value: str, ",
+            "                font : Font = None, alignment : Alignment = None,",
+            "                border : Border = None, fill : PatternFill = None) -> Cell:",
+            "    \"\"\"Helper to set cell value and styles in a single call.\"\"\"\n",
+            "    cell = worksheet[address]",
+            "    if value: cell.value = value",
+            "    if font: cell.font = font",
+            "    if alignment: cell.alignment = alignment",
+            "    if border: cell.border = border",
+            "    if fill: cell.fill = fill",
+            "    return cell\n\n",
+            "# Common styles and configurations"
         ]
 
         for category in self.style_registry.values():
@@ -178,27 +194,27 @@ class PythonScriptExporter:
         script = [
             "# -*- coding: utf-8 -*-\n",
             "import openpyxl",
-            "import sys",
+            "import sys\n",
             "from pathlib import Path\n",
             "sys.path.append(str(Path(__file__).parent))\n"
         ]
 
         for mod in sheet_modules:
-            script.append(f"from sheet_{mod} import rebuild_{mod}")
+            script.append(f"from sheet_{mod} import build_{mod}")
 
-        script.append("\ndef main_rebuild():")
+        script.append("\ndef main():")
         script.append("    wb = openpyxl.Workbook()")
         script.append("    if 'Sheet' in wb.sheetnames: wb.remove(wb['Sheet'])")
 
         for mod in sheet_modules:
-            script.append(f"    rebuild_{mod}(wb)")
+            script.append(f"    build_{mod}(wb)")
 
         script.append("    output_file = 'full_reconstructed.xlsx'")
         script.append("    wb.save(output_file)")
         script.append("    print(f\"[!] Success: '{output_file}' generated.\")")
 
         script.append("\nif __name__ == '__main__':")
-        script.append("    main_rebuild()")
+        script.append("    main()")
 
         # Save Main module
         with open(self.output_dir / "main.py", "w", encoding="utf-8") as f:

@@ -26,7 +26,7 @@ class CellMetadata:
     font_size: int = 12
     font_color: Optional[str] = None
     font_name: str = "Arial"
-    alignment: str = "left"
+    horizontal_align: str = "left"
     vertical_align: str = "center"
     text_rotation: int = 0
     formula: Optional[str] = None
@@ -79,15 +79,15 @@ class XlsxAnalyzer:
     def get_sheet_dimensions(self, sheet_name: str) -> Dict[str, Any]:
         """Captures column widths and row heights for visual fidelity."""
         ws = self.workbook[sheet_name]
-        dims = {"cols": {}, "rows": {}}
+        dims = {"cols_letter": {}, "rows_idx": {}}
 
         for col_letter, col_def in ws.column_dimensions.items():
             if col_def.width:
-                dims["cols"][col_letter] = col_def.width
+                dims["cols_letter"][col_letter] = col_def.width
 
         for row_idx, row_def in ws.row_dimensions.items():
             if row_def.height:
-                dims["rows"][row_idx] = row_def.height
+                dims["rows_idx"][row_idx] = row_def.height
         return dims
 
     def get_sheet_assets(self, sheet_name: str, output_img_dir: Path) -> List[Dict[str, Any]]:
@@ -100,6 +100,7 @@ class XlsxAnalyzer:
         if not hasattr(ws, '_images') or not ws._images:
             return []
 
+        # Directory for storing captured images
         output_img_dir.mkdir(parents=True, exist_ok=True)
 
         for i, img in enumerate(ws._images):
@@ -188,7 +189,7 @@ class XlsxAnalyzer:
                     font_size=int(f_size) if f_size else 12,
                     font_color=f_color,
                     font_name=getattr(cell.font, "name", "Arial"),
-                    alignment=getattr(cell.alignment, "horizontal", "left") or "left",
+                    horizontal_align=getattr(cell.alignment, "horizontal", "left") or "left",
                     vertical_align=getattr(cell.alignment, "vertical", "center") or "center",
                     text_rotation=getattr(cell.alignment, "text_rotation", 0) or 0,
                     borders=self._get_borders(cell)
