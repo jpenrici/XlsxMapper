@@ -146,7 +146,8 @@ class PythonScriptExporter:
                 processed_merges.add(m_range)
 
             # Include command in script
-            cmd_styles.append(f"    format_cell(ws, '{address}', '{value}', {font}, {alignment}, {border}, {fill})")
+            fmt = f"    format_cell(ws, '{address}', \"\"\"{value}\"\"\", {font}, {alignment}, {border}, {fill})"
+            cmd_styles.append(fmt)
 
         # Module
         # Isso estaria certo pro meu propósito?
