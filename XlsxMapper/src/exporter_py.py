@@ -13,7 +13,7 @@ class PythonScriptExporter:
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         # Stores unique styles: { "hash": "python_code" }
-        self.style_registry = {"borders": {}, "fills": {}, "fonts": {}, "alignment": {}}
+        self.style_registry = {"borders": {}, "fills": {}, "fonts": {}, "alignments": {}}
 
     def _generate_style_id(self, style_dict, prefix):
         """Generates a unique ID for a style based on its content."""
@@ -40,24 +40,18 @@ class PythonScriptExporter:
 
     def _write_sheet_module(self, clean_name: str, original_name: str, content, filename: str):
         """Generate module to build the spreadsheet."""
-        script = [
-            "# -*- coding: utf-8 -*-\n",
-            "from openpyxl.styles import Alignment, Font, PatternFill, Border, Side",
-            "from openpyxl.drawing.image import Image as XLImage",
-            "from datetime import datetime as dt, time as tm",
-            "from pathlib import Path\n",
-            "# format_cell function and style constants",
-            "from common import *\n\n",
-            f"def build_{clean_name}(wb):",
-            f"    ws = wb.create_sheet('{original_name}')"
-        ]
+
+        cmd_dims = []
+        cmd_merges = []
+        cmd_styles = []
+        cmd_formulas = []
 
         # Apply Dimensions
         dims = content.get("dims", {})
         for col, width in dims.get("cols_letter", {}).items():
-            script.append(f"    ws.column_dimensions['{col}'].width = {width}")
+            cmd_dims.append(f"    ws.column_dimensions['{col}'].width = {width}")
         for row, height in dims.get("rows_idx", {}).items():
-            script.append(f"    ws.row_dimensions[{row}].height = {height}")
+            cmd_dims.append(f"    ws.row_dimensions[{row}].height = {height}")
 
         # Reconstruct Cells (Data & Styles)
         processed_merges = set()
@@ -72,7 +66,7 @@ class PythonScriptExporter:
 
             # Formulas
             if data.get('formula'):
-                script.append(f"    ws['{address}'].value = '{data['formula']}'")
+                cmd_formulas.append(f"    ws['{address}'].value = '{data['formula']}'")
 
             # Values
             if data.get('value') is not None:
@@ -84,10 +78,14 @@ class PythonScriptExporter:
                 font_data['bold'] = True
             if data.get('font_italic'):
                 font_data['italic'] = True
-            if data.get('font_color'):
-                font_data['color'] = data['font_color']
             if data.get('font_size'):
                 font_data['size'] = data['font_size']
+            if data.get('font_name'):
+                font_data['name'] = data['font_name']
+
+            raw_f_color = data.get('font_color')
+            if isinstance(raw_f_color, str) and len(raw_f_color) <= 8:
+                font_data['color'] = raw_f_color
 
             if font_data:
                 f_id = self._generate_style_id(font_data, "FONT")
@@ -95,7 +93,7 @@ class PythonScriptExporter:
                     f_args = [f"{k}={v}" if isinstance(v, (int, bool)) else f"{k}='{v}'"
                               for k, v in font_data.items()]
                     self.style_registry["fonts"][f_id] = f"Font({', '.join(f_args)})"
-                font = f"{f_id}"
+                font = f_id
 
             # Alignment & Rotation
             align_data = {}
@@ -118,7 +116,7 @@ class PythonScriptExporter:
                               for k, v in align_data.items()]
                     self.style_registry["alignments"][a_id] = f"Alignment({', '.join(a_args)})"
 
-                alignment = f"{a_id}"
+                alignment = a_id
 
             # Borders
             if data.get('borders'):
@@ -126,22 +124,56 @@ class PythonScriptExporter:
                 b_args = [f"{s}=Side(border_style='{d['style']}', color='{d['color']}')" for s,
                           d in data['borders'].items()]
                 self.style_registry["borders"][b_id] = f"Border({', '.join(b_args)})"
-                border = f"{b_id}"
+                border = b_id
 
             # Fill
-            if data.get('fill_color'):
-                f_id = f"FILL_{data['fill_color']}"
-                self.style_registry["fills"][f_id] = f"PatternFill(start_color='{data['fill_color']}', fill_type='solid')"
-                fill = f"{f_id}"
+            raw_fill = data.get('fill_color')
+            if isinstance(raw_fill, str) and len(raw_fill) <= 8 and " " not in raw_fill:
+                fill_data = {'color': raw_fill, 'type': 'solid'}
+                f_id = self._generate_style_id(fill_data, "FILL")
+
+                if f_id not in self.style_registry["fills"]:
+                    self.style_registry["fills"][f_id] = (
+                        f"PatternFill(start_color='{raw_fill}', "
+                        f"end_color='{raw_fill}', fill_type='solid')"
+                    )
+                fill = f_id
 
             # Merge Logic
             m_range = data.get('merge_range')
             if data.get('is_merged') and m_range not in processed_merges:
-                script.append(f"    ws.merge_cells('{m_range}')")
+                cmd_merges.append(f"    ws.merge_cells('{m_range}')")
                 processed_merges.add(m_range)
 
             # Include command in script
-            script.append(f"    format_cell(ws, '{address}', '{value}', {font}, {alignment}, {border}, {fill})")
+            cmd_styles.append(f"    format_cell(ws, '{address}', '{value}', {font}, {alignment}, {border}, {fill})")
+
+        # Module
+        # Isso estaria certo pro meu propósito?
+        script = [
+            "# -*- coding: utf-8 -*-\n",
+            "from openpyxl.styles import Alignment, Font, PatternFill, Border, Side",
+            "from openpyxl.drawing.image import Image as XLImage",
+            "from datetime import datetime as dt, time as tm",
+            "from pathlib import Path\n",
+            "# format_cell function and style constants",
+            "from common import *\n\n",
+            f"def build_{clean_name}(wb):",
+            f"    ws = wb.create_sheet('{original_name}')"
+        ]
+
+        if cmd_dims:
+            script.append("    # Dimensions")
+            script.extend(cmd_dims)
+        if cmd_merges:
+            script.append("    # Merges")
+            script.extend(cmd_merges)
+        if cmd_styles:
+            script.append("    # Styles")
+            script.extend(cmd_styles)
+        if cmd_formulas:
+            script.append("    # Formulas")
+            script.extend(cmd_formulas)
 
         # Reconstruct Assets (Images)
         assets = content.get("assets", [])
@@ -153,8 +185,7 @@ class PythonScriptExporter:
                 script.append("        img_obj = XLImage(img_path)")
                 script.append(f"        img_obj.width, img_obj.height = {img['width']}, {img['height']}")
                 script.append(f"        ws.add_image(img_obj, '{img['anchor']}')")
-                script.append(
-                    f"    except Exception as e: print(f' [!] Error loading image {img['filename']}: {{e}}')")
+                script.append(f"    except Exception as e: print(f' [!] Error loading image {img['filename']}: {{e}}')")
 
         script.append(f"    print(f\"   [+] Sheet {original_name} completed.\")\n")
 
@@ -168,22 +199,26 @@ class PythonScriptExporter:
             "from openpyxl.cell.cell import Cell",
             "from openpyxl.worksheet.worksheet import Worksheet",
             "from openpyxl.styles import Border, Side, PatternFill, Font, Alignment\n\n",
-            "def format_cell(worksheet : Worksheet, address: str, value: str, ",
-            "                font : Font = None, alignment : Alignment = None,",
-            "                border : Border = None, fill : PatternFill = None) -> Cell:",
-            "    \"\"\"Helper to set cell value and styles in a single call.\"\"\"\n",
+            "def format_cell(worksheet : Worksheet, ",
+            "                address: str,",
+            "                value: str, ",
+            "                font : Font = None,",
+            "                alignment : Alignment = None,",
+            "                border : Border = None,",
+            "                fill : PatternFill = None) -> Cell:\n",
             "    cell = worksheet[address]",
             "    if value: cell.value = value",
             "    if font: cell.font = font",
             "    if alignment: cell.alignment = alignment",
             "    if border: cell.border = border",
-            "    if fill: cell.fill = fill",
+            "    if fill: cell.fill = fill\n",
             "    return cell\n\n",
             "# Common styles and configurations"
         ]
 
-        for category in self.style_registry.values():
-            for style_id, python_code in category.items():
+        for category, styles in self.style_registry.items():
+            content.append(f"\n# {category.upper()}")
+            for style_id, python_code in styles.items():
                 content.append(f"{style_id} = {python_code}")
 
         # Save Common module
@@ -225,3 +260,7 @@ if __name__ == "__main__":
     print("Module to convert cell metadata or JSON, generated by the Analysis Module,"
           " into a Python script using Openpyxl."
           "\nUse:\n\tfrom exporter_py import PythonScriptExporter")
+
+# Será que implementei errado sua sugestão está ocorrendo este erro:
+# commom.py
+# FILL_D7B7191A = PatternFill(start_color='Values must be of type <class 'str'>', end_color='Values must be of type <class 'str'>', fill_type='solid')

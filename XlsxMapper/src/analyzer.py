@@ -47,19 +47,26 @@ class XlsxAnalyzer:
 
     def _get_hex_color(self, color_obj: Any) -> Optional[str]:
         """
-        Converts openpyxl color objects (ARGB) to standard HEX strings.
+        Converts openpyxl color objects (RGB, Theme, Indexed) to HEX strings.
         Fixes the 'black background' issue by checking for invalid/default colors.
         """
-        if not color_obj:
+
+        if not color_obj or color_obj.type is None:
             return None
 
-        if color_obj.type == 'rgb':
-            rgb = str(color_obj.rgb)
-            # If color is '00000000' or empty, it means 'No Fill' or 'Automatic'
-            if rgb in ["00000000", "000000", "None"]:
-                return None
+        try:
+            if color_obj.type == 'theme':
+                return None  # Type not supported
+            if color_obj.type == 'indexed':
+                return None  # Type not supported
+            if color_obj.type == 'rgb' and color_obj.rgb:
+                rgb = str(color_obj.rgb)
+                if rgb in ["00000000", "000000", "None"]:
+                    return None
+                return rgb[2:] if len(rgb) == 8 else rgb
+        except Exception:
+            pass
 
-            return rgb[2:] if len(rgb) == 8 else rgb
         return None
 
     def _get_borders(self, cell: Any) -> Dict[str, Any]:
@@ -173,7 +180,12 @@ class XlsxAnalyzer:
                 f_size = getattr(cell.font, "sz", 12)
                 f_color = None
                 if cell.font and cell.font.color:
-                    f_color = self._get_hex_color(cell.font.color)
+                    raw_color = self._get_hex_color(cell.font.color)
+                    if isinstance(raw_color, str) and len(raw_color) <= 8:
+                        f_color = raw_color
+
+                fill_obj = cell.fill.start_color
+                f_color_hex = self._get_hex_color(fill_obj)
 
                 meta = CellMetadata(
                     coordinate=cell.coordinate,
@@ -183,7 +195,7 @@ class XlsxAnalyzer:
                     formula=formula,
                     is_merged=is_merged,
                     merge_range=m_range_coord,
-                    fill_color=self._get_hex_color(cell.fill.start_color),
+                    fill_color=f_color_hex if isinstance(f_color_hex, str) else None,
                     font_bold=getattr(cell.font, "bold", False),
                     font_italic=getattr(cell.font, "italic", False),
                     font_size=int(f_size) if f_size else 12,
