@@ -12,14 +12,26 @@ class PythonScriptExporter:
     def __init__(self, output_dir: Path):
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        # Stores unique styles: { "hash": "python_code" }
+        # Stores unique styles
         self.style_registry = {"borders": {}, "fills": {}, "fonts": {}, "alignments": {}}
+        self.style_counters = {"BORDER": 0, "FILL": 0, "FONT": 0, "ALIGN": 0}
+        self.style_map = {}  # { "prefix_hash": "ID_SEQUENCIAL" }
 
     def _generate_style_id(self, style_dict, prefix):
         """Generates a unique ID for a style based on its content."""
         style_str = str(sorted(style_dict.items()))
         style_hash = hashlib.md5(style_str.encode()).hexdigest()[:8]
-        return f"{prefix}_{style_hash}".upper()
+
+        lookup_key = f"{prefix}_{style_hash}"
+        if lookup_key in self.style_map:
+            return self.style_map[lookup_key]
+
+        self.style_counters[prefix] += 1
+        seq_id = f"{prefix}_{self.style_counters[prefix]:03d}"  # Ex: FONT_001
+
+        self.style_map[lookup_key] = seq_id
+
+        return seq_id
 
     def generate_full_workbook(self, workbook_data: Dict[str, Dict[str, Any]]) -> None:
         """
@@ -224,8 +236,8 @@ class PythonScriptExporter:
 
         for category, styles in self.style_registry.items():
             content.append(f"\n# {category.upper()}")
-            for style_id, python_code in styles.items():
-                content.append(f"{style_id} = {python_code}")
+            for style_id in sorted(styles.keys()):
+                content.append(f"{style_id} = {styles[style_id]}")
 
         # Save Common module
         with open(self.output_dir / "common.py", "w", encoding="utf-8") as f:

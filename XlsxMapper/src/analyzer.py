@@ -106,26 +106,30 @@ class XlsxAnalyzer:
         output_img_dir.mkdir(parents=True, exist_ok=True)
 
         for i, img in enumerate(ws._images):
-            # Calculate anchor cell (from 0-indexed to 1-indexed)
-            col = img.anchor._from.col + 1
-            row = img.anchor._from.row + 1
-            anchor_coord = ws.cell(row=row, column=col).coordinate
-
-            # File naming
-            ext = img.format if hasattr(img, 'format') else 'png'
-            filename = f"asset_{sheet_name}_{i}.{ext}"
-            save_path = output_img_dir / filename
-
-            # Save binary data
-            with open(save_path, "wb") as f:
-                f.write(img._data())
-
-            images_metadata.append({
-                "anchor": anchor_coord,
-                "filename": filename,
-                "width": img.width,
-                "height": img.height
-            })
+            try:
+                # Calculate anchor cell (from 0-indexed to 1-indexed)
+                col = img.anchor._from.col + 1
+                row = img.anchor._from.row + 1
+                anchor_coord = ws.cell(row=row, column=col).coordinate
+    
+                # File naming
+                ext = img.format if hasattr(img, 'format') else 'png'
+                filename = f"asset_{sheet_name}_{i}.{ext}"
+                save_path = output_img_dir / filename
+    
+                # Save binary data
+                with open(save_path, "wb") as f:
+                    f.write(img._data())
+                
+                images_metadata.append({
+                    "anchor": anchor_coord,
+                    "filename": filename,
+                    "width": img.width,
+                    "height": img.height
+                })
+            except Exception as e:
+                print(f" [!] Error processing image {i} in sheet {sheet_name}: {e}")
+                continue                
 
         return images_metadata
 
